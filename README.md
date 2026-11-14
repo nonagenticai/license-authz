@@ -248,7 +248,7 @@ with the gate opt-in, and runs fully without one while the switch below is unset
 | `strata_rag` | `STRATA_LICENSE_INTROSPECT_URL` | unset = off |
 | `strata_ingest` | `STRATA_INGEST_LICENSE_INTROSPECT_URL` | unset = off |
 | `conveyor` | `LICENCES_BASE_URL` | unset = off (only `licence.sync` jobs are affected) |
-| `nonagenticai_mcp_server` | `LICENSE_INTROSPECT_URL` | unset = off (protected work disabled) |
+| `nonagenticai_mcp_server` (Python implementation, archived) | `LICENSE_INTROSPECT_URL` | unset = off (protected work disabled); the public Rust port carries no licence code yet |
 
 When a service **is** configured, enforcement is deliberately fail-closed: if the licences service
 is unreachable, this service denies the request (403) instead of allowing it. That is the intended
