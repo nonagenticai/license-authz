@@ -1,0 +1,28 @@
+# Allowlist for scripts/ci/no-private-refs.sh — a security decision, not a convenience.
+#
+# One rule per line, `path/glob:pattern  # justification`. The glob matches the repo-relative
+# path; the pattern is an ERE matched against the whole `git grep` hit (`path:line:text`).
+# Blank lines and `#` comments are ignored. A justification is mandatory in review.
+#
+# ⛔ Do NOT add an entry to keep a real internal hostname, address or private repository path
+# in a public tree. Remove it instead. An entry is only for a string that *looks* private but
+# is not: a documented loopback example, a placeholder, or a term that collides with a rule.
+#
+# The guard and this file necessarily spell the patterns out; the guard excludes both from
+# its own scan. Everything else is scanned.
+
+# ── the Kubernetes cluster domain ────────────────────────────────────────────
+# `svc.cluster.local` is cluster DNS, not estate topology: it is the same string
+# in every Kubernetes cluster in the world and names no organisation, service or
+# namespace by itself. This service must strip it to normalise an in-mesh
+# authority, so the constant has to exist in source. The hosts that used to sit
+# in front of it (named services and namespaces) were removed on 2026-11-14 and
+# now come from deployment configuration; only the suffix remains.
+
+src/main.py:for suffix in.*svc\.cluster\.local
+src/main.py:host\.endswith.*svc\.cluster\.local
+
+# A SYNTHETIC host whose left-hand label is the placeholder `x`, used to pin the
+# no_host branch of `_normalize_authority`/`_check_app_host`. Names no real
+# service and no real namespace; the left-hand label is what makes it synthetic.
+tests/test_main.py:x\.svc\.cluster\.local
