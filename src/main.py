@@ -78,6 +78,12 @@ LICENSES_INTERNAL_TENANTS_URL = _settings.licenses_internal_tenants_url
 # stale-while-error below). Aligns with the w2v_common in-process middleware.
 INTROSPECT_TIMEOUT = float(os.getenv("INTROSPECT_TIMEOUT", "10.0"))
 
+# How often the background refresher renews the Keycloak service-account token.
+# ServiceTokenProvider retires its cache 30 s before Keycloak's expiry (≈270 s
+# for the default 300 s lifetime), so 200 s keeps the token continuously valid.
+# 0 disables the refresher; the request path still mints on demand.
+SA_TOKEN_REFRESH_SECONDS = float(os.getenv("LICENSE_AUTHZ_SA_TOKEN_REFRESH_SECONDS", "200"))
+
 # Tenant identity: the licenses service is the single owner of tenant identity.
 # /license/introspect returns the canonical tenant UUID (any UUID version — the
 # licenses boundary validator `validate_tenant_uuid` accepts any version).
@@ -2213,6 +2219,23 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     application.state.http_client = httpx.AsyncClient(timeout=INTROSPECT_TIMEOUT)
     _init_redis_state(application)
     application.state.service_auth = ServiceTokenProvider()
+    # Keep the SA token warm. The first licence-gated request after an idle
+    # window otherwise pays a Keycloak mint plus cold outbound connections
+    # (4 939.7 ms measured 2026-11-15; the ingress budget is now 10 s). Only a
+    # configured provider can mint, and an unconfigured one must not race the
+    # tests or boot with a pointless tick. The loop stops on shutdown and never
+    # raises; see ServiceTokenProvider.keep_warm.
+    application.state.service_auth_stop = asyncio.Event()
+    application.state.service_auth_task = None
+    if SA_TOKEN_REFRESH_SECONDS > 0 and application.state.service_auth.configured:
+        application.state.service_auth_task = asyncio.create_task(
+            application.state.service_auth.keep_warm(
+                application.state.http_client,
+                SA_TOKEN_REFRESH_SECONDS,
+                application.state.service_auth_stop,
+            ),
+            name="service-auth-token-refresh",
+        )
     # Same reasoning as redis_connect_lock: created fresh per-app so it binds
     # to THIS app's event loop, never a module-level singleton.
     application.state.sp_tenant_map_lock = asyncio.Lock()
@@ -2307,6 +2330,10 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     )
     application.state.metrics_pusher.start()
     yield
+    application.state.service_auth_stop.set()
+    if application.state.service_auth_task is not None:
+        with contextlib.suppress(asyncio.CancelledError):
+            await application.state.service_auth_task
     await application.state.metrics_pusher.stop()
     await application.state.http_client.aclose()
     if application.state.redis:

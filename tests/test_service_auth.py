@@ -1,5 +1,6 @@
 """Unit tests for ServiceTokenProvider (Keycloak SA token fetcher)."""
 
+import asyncio
 import json
 import logging
 import time
@@ -716,3 +717,100 @@ def test_the_strict_json_guard_would_actually_reject_a_bad_line():
     assert json.loads('{"expires_in": 300}', parse_constant=_reject_json_constant) == {
         "expires_in": 300
     }
+
+
+@pytest.mark.asyncio
+class TestKeepWarm:
+    """The background refresher: it renews, survives failures, and stops promptly."""
+
+    @staticmethod
+    def _provider() -> ServiceTokenProvider:
+        return ServiceTokenProvider(token_url=TOKEN_URL, client_id="cid", client_secret="sec")
+
+    @staticmethod
+    async def _wait_for_calls(client: AsyncMock, count: int, deadline_s: float = 2.0) -> None:
+        """Wait until the loop has made ``count`` HTTP attempts (bounded)."""
+        deadline = time.monotonic() + deadline_s
+        while client.post.await_count < count and time.monotonic() < deadline:
+            await asyncio.sleep(0.01)
+        assert client.post.await_count >= count, "the refresher did not tick"
+
+    async def test_renews_repeatedly_and_stops(self):
+        """expires_in=1 makes the cache expire ~29 s in the past, so every tick mints."""
+        provider = self._provider()
+        client = _autospec_client()
+        client.post.return_value = httpx.Response(
+            200,
+            json={"access_token": "t", "expires_in": 1},
+            request=httpx.Request("POST", TOKEN_URL),
+        )
+        stop = asyncio.Event()
+        task = asyncio.create_task(provider.keep_warm(client, 1.0, stop))
+
+        await self._wait_for_calls(client, 3, deadline_s=4.0)
+        stop.set()
+        await asyncio.wait_for(task, timeout=1.0)
+        assert not task.cancelled()
+
+    async def test_a_failing_refresh_does_not_kill_the_loop(self):
+        """A dead Keycloak must not end the background task; the next tick retries."""
+        provider = self._provider()
+        client = _autospec_client()
+        client.post.side_effect = httpx.ConnectError("boom")
+        stop = asyncio.Event()
+        task = asyncio.create_task(provider.keep_warm(client, 1.0, stop))
+
+        await self._wait_for_calls(client, 3, deadline_s=4.0)
+        stop.set()
+        await asyncio.wait_for(task, timeout=1.0)
+        assert not task.cancelled()
+
+    async def test_stop_event_ends_a_long_interval_promptly(self):
+        """Shutdown must not wait out the 200 s interval."""
+        provider = self._provider()
+        client = _autospec_client()
+        client.post.return_value = httpx.Response(
+            200,
+            json={"access_token": "t", "expires_in": 300},
+            request=httpx.Request("POST", TOKEN_URL),
+        )
+        stop = asyncio.Event()
+        task = asyncio.create_task(provider.keep_warm(client, 60.0, stop))
+
+        await self._wait_for_calls(client, 1)
+        stop.set()
+        await asyncio.wait_for(task, timeout=1.0)
+
+    async def test_an_unconfigured_provider_never_reaches_http(self):
+        provider = ServiceTokenProvider(token_url=TOKEN_URL, client_id="cid", client_secret="")
+        client = _autospec_client()
+        stop = asyncio.Event()
+        task = asyncio.create_task(provider.keep_warm(client, 0.01, stop))
+
+        await asyncio.sleep(0.05)
+        stop.set()
+        await asyncio.wait_for(task, timeout=1.0)
+        client.post.assert_not_called()
+
+
+async def test_lifespan_starts_and_stops_the_refresher_when_configured(monkeypatch):
+    """The lifespan wiring: a configured provider gets a live task and shutdown ends it."""
+    from main import app, lifespan
+
+    monkeypatch.setenv("KEYCLOAK_TOKEN_URL", "http://127.0.0.1:9/token")
+    monkeypatch.setenv("LICENSE_AUTHZ_SA_CLIENT_SECRET", "sec")
+    async with lifespan(app):
+        task = app.state.service_auth_task
+        assert task is not None, "a configured provider must be kept warm"
+        assert not task.done()
+    assert task.done(), "shutdown must stop the refresher"
+
+
+async def test_lifespan_does_not_start_the_refresher_when_unconfigured(monkeypatch):
+    """No SA credential: the tick would only pollute metrics and logs, so it must not run."""
+    from main import app, lifespan
+
+    monkeypatch.delenv("LICENSE_AUTHZ_SA_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("KEYCLOAK_TOKEN_URL", raising=False)
+    async with lifespan(app):
+        assert app.state.service_auth_task is None
