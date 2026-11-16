@@ -126,13 +126,24 @@ class ServiceTokenProvider:
             )
         )
 
-    async def get_token(self, client: httpx.AsyncClient | None = None) -> str | None:
-        """Return a cached or fresh SA JWT, or None if not configured."""
+    async def get_token(
+        self,
+        client: httpx.AsyncClient | None = None,
+        *,
+        refresh: bool = False,
+    ) -> str | None:
+        """Return a cached or fresh SA JWT, or None if not configured.
+
+        ``refresh=True`` mints a new token even when the cached one has not
+        expired yet. That is the background warmer's path: a plain cache hit
+        returns the SAME token with the same remaining lifetime, so a warmer
+        that only calls ``get_token()`` cannot extend the token's life.
+        """
         if not self.configured:
             metric_sa_token.labels(outcome="unconfigured").inc()
             self._log_unconfigured_once()
             return None
-        if self._token and time.monotonic() < self._expires_at:
+        if not refresh and self._token and time.monotonic() < self._expires_at:
             metric_sa_token.labels(outcome="cached").inc()
             return self._token
 
@@ -363,9 +374,14 @@ class ServiceTokenProvider:
         after the first mint, taking the mint off that path; the per-hop
         connection cost is unchanged and bounded by the 10 s ingress budget.
 
-        ``interval_seconds`` must stay below the cache's ~270 s lifetime (200 s
-        by default). The first tick mints immediately, so a configured pod boots
-        warm rather than waiting one interval.
+        Each tick MINTS a fresh token (``refresh=True``): a plain cache hit would
+        return the same token with the same remaining lifetime, so a tick before
+        expiry would extend nothing and the next tick could land after the token
+        died. ``interval_seconds`` must stay below the ~270 s cache lifetime (200 s
+        by default); the loop also shortens its own sleep to three quarters of the
+        fresh token's remaining life, so a realm that issues shorter-lived tokens
+        is still renewed before expiry. The first tick mints immediately, so a
+        configured pod boots warm.
 
         Never lets an exception escape: this is a background task, and a task
         that died on one bad Keycloak response would silently restore the cold
@@ -385,7 +401,7 @@ class ServiceTokenProvider:
         )
         while not stop_event.is_set():
             try:
-                await self.get_token(client)
+                await self.get_token(client, refresh=True)
             except Exception as exc:  # a background task must not die
                 logger.warning(
                     json.dumps(
@@ -395,7 +411,11 @@ class ServiceTokenProvider:
                         }
                     )
                 )
+            # Wake before the fresh token expires even if the configured interval
+            # is longer than a short-lived realm token.
+            remaining = self._expires_at - time.monotonic() if self._token else 0.0
+            wait = interval if remaining <= 0 else min(interval, max(1.0, remaining * 0.75))
             try:
-                await asyncio.wait_for(stop_event.wait(), timeout=interval)
+                await asyncio.wait_for(stop_event.wait(), timeout=wait)
             except asyncio.TimeoutError:
                 pass

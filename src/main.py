@@ -2221,10 +2221,12 @@ async def lifespan(application: FastAPI) -> AsyncGenerator[None]:
     application.state.service_auth = ServiceTokenProvider()
     # Keep the SA token warm. The first licence-gated request after an idle
     # window otherwise pays a Keycloak mint plus cold outbound connections
-    # (4 939.7 ms measured 2026-11-15; the ingress budget is now 10 s). Only a
-    # configured provider can mint, and an unconfigured one must not race the
-    # tests or boot with a pointless tick. The loop stops on shutdown and never
-    # raises; see ServiceTokenProvider.keep_warm.
+    # (4 939.7 ms measured 2026-11-15; the ingress budget is now 10 s). The loop
+    # mints a FRESH token each tick — a cache hit would return the same token
+    # with the same expiry. Only a configured provider can mint, and an
+    # unconfigured one must not race the tests or boot with a pointless tick.
+    # The loop stops on shutdown and never raises; see
+    # ServiceTokenProvider.keep_warm.
     application.state.service_auth_stop = asyncio.Event()
     application.state.service_auth_task = None
     if SA_TOKEN_REFRESH_SECONDS > 0 and application.state.service_auth.configured:

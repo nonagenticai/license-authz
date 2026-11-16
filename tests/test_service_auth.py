@@ -752,6 +752,33 @@ class TestKeepWarm:
         await asyncio.wait_for(task, timeout=1.0)
         assert not task.cancelled()
 
+    async def test_each_tick_mints_even_while_the_cached_token_is_valid(self):
+        """A 300 s token is still valid when the next tick arrives; the tick must RENEW it.
+
+        This is the regression the first version shipped: ``get_token()`` returned
+        the cached token, whose remaining lifetime was unchanged, so the token then
+        died ~70 s later and the following tick was the first to notice — leaving a
+        request-shaped window where the cold mint came back.
+        """
+        provider = self._provider()
+        client = _autospec_client()
+        client.post.return_value = httpx.Response(
+            200,
+            json={"access_token": "t", "expires_in": 300},
+            request=httpx.Request("POST", TOKEN_URL),
+        )
+        before = _snapshot()
+        stop = asyncio.Event()
+        task = asyncio.create_task(provider.keep_warm(client, 1.0, stop))
+
+        await self._wait_for_calls(client, 2, deadline_s=4.0)
+        stop.set()
+        await asyncio.wait_for(task, timeout=1.0)
+        # Two mints, never a loop-side cache hit: the second POST happened while
+        # the first token's ~270 s cache lifetime had barely started.
+        assert _sa_count("cached") == before["cached"]
+        assert _sa_count("ok") >= before["ok"] + 2
+
     async def test_a_failing_refresh_does_not_kill_the_loop(self):
         """A dead Keycloak must not end the background task; the next tick retries."""
         provider = self._provider()
