@@ -31,6 +31,7 @@ it names the outcome, the HTTP status when there is one, and the exception
 class, and is diagnosable without any metric.
 """
 
+import asyncio
 import json
 import logging
 import math
@@ -345,3 +346,56 @@ class ServiceTokenProvider:
         """Build an Authorization header dict (empty if no token available)."""
         tok = await self.get_token(client)
         return {"Authorization": f"Bearer {tok}"} if tok else {}
+
+    async def keep_warm(
+        self,
+        client: httpx.AsyncClient,
+        interval_seconds: float,
+        stop_event: asyncio.Event,
+    ) -> None:
+        """Renew the cached SA token in the background until asked to stop.
+
+        One request after ~10 min of idle used to pay a whole cold path: the
+        cached token had expired (``expires_in - 30`` ≈ 270 s) so the first hop
+        was a Keycloak mint, then the introspect/budget/quota legs re-dialled
+        serially — measured 4 939.7 ms at 2026-11-15T22:19:48Z, 13 ms past the
+        old 5 s ingress budget. This loop keeps the token continuously valid
+        after the first mint, taking the mint off that path; the per-hop
+        connection cost is unchanged and bounded by the 10 s ingress budget.
+
+        ``interval_seconds`` must stay below the cache's ~270 s lifetime (200 s
+        by default). The first tick mints immediately, so a configured pod boots
+        warm rather than waiting one interval.
+
+        Never lets an exception escape: this is a background task, and a task
+        that died on one bad Keycloak response would silently restore the cold
+        path for the pod's whole lifetime. ``get_token`` already absorbs every
+        failure it can see and returns ``None``; this arm only covers a defect
+        in that contract and logs a shape-only line, never the secret.
+        """
+        interval = max(1.0, float(interval_seconds))
+        logger.info(
+            json.dumps(
+                {
+                    "event": "sa_token_refresh_started",
+                    "interval_seconds": interval,
+                    "configured": self.configured,
+                }
+            )
+        )
+        while not stop_event.is_set():
+            try:
+                await self.get_token(client)
+            except Exception as exc:  # a background task must not die
+                logger.warning(
+                    json.dumps(
+                        {
+                            "event": "sa_token_refresh_failed",
+                            "error_class": type(exc).__name__,
+                        }
+                    )
+                )
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=interval)
+            except asyncio.TimeoutError:
+                pass
