@@ -978,12 +978,8 @@ class TestAssertedAppKeyGatewayHostBinding:
         assert _route_sample("allowed") == before_allowed, "folded into generic `allowed`"
         assert _route_sample("denied_asserted_key_unregistered") == before_denied
 
-    async def test_kanban_host_with_kanban_key_is_allowed(self, monkeypatch):
-        before = _route_sample("allowed_asserted_key_host_bound")
-        resp = await self._req(monkeypatch, "/boards/123", "kanban", "kanban.nonagentic.ai")
-        assert resp.status_code == 200
-        assert _route_sample("allowed_asserted_key_host_bound") == before + 1
-
+    # kanban.nonagentic.ai REMOVED 2026-11-18 with the S14 sweep: the host is gone and
+    # the gateway no longer asserts a key for it. The n8n case above keeps the coverage.
     async def test_n8n_host_with_a_different_key_is_still_denied(self, monkeypatch):
         """The binding is host -> EXACTLY one key, not "any key on a known host"."""
         before_bound = _route_sample("allowed_asserted_key_host_bound")
@@ -1079,7 +1075,6 @@ class TestAssertedAppKeyGatewayHostBinding:
             ("/rest/workflows", "n8n", "n8n.nonagentic.ai"),
             ("/types/nodes.json", "n8n", "n8n.nonagentic.ai"),
             ("/workflow/abc", "n8n", "n8n.nonagentic.ai"),
-            ("/boards/1", "kanban", "kanban.nonagentic.ai"),
         ],
     )
     async def test_gateway_ui_path_emits_no_metering_event(
