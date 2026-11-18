@@ -1598,7 +1598,7 @@ class TestAssertedKeyRoutePredicates:
         from main import GATEWAY_ASSERTED_HOST_KEYS
 
         apps = set(GATEWAY_ASSERTED_HOST_KEYS.values())
-        assert {"n8n", "kanban"} <= apps
+        assert {"n8n"} <= apps
         for skip_app in apps:
             assert (
                 REGISTRY.get_sample_value(
@@ -2132,7 +2132,7 @@ class TestAppHostRouteBinding:
         from main import GATEWAY_ASSERTED_HOST_KEYS
         from main import _build_gateway_asserted_host_keys as build
 
-        seed = {"n8n.nonagentic.ai": "n8n", "kanban.nonagentic.ai": "kanban"}
+        seed = {"n8n.nonagentic.ai": "n8n"}
         assert build("") == seed
         assert GATEWAY_ASSERTED_HOST_KEYS == seed
         merged = build("New.Example.com.:443=n8n, kanban.nonagentic.ai=planka")

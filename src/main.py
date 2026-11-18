@@ -771,7 +771,8 @@ APP_HOST_REGISTRY.update(_parse_host_registry_override(os.getenv("APP_HOST_REGIS
 # of a free choice.
 _GATEWAY_ASSERTED_HOST_KEYS_SEED: dict[str, str] = {
     "n8n.nonagentic.ai": "n8n",
-    "kanban.nonagentic.ai": "kanban",
+    # kanban.nonagentic.ai REMOVED 2026-11-18: kanban/Planka was deleted with the
+    # S14 sweep; the gitops gateway no longer asserts an x-app-key for that host.
 }
 
 
