@@ -1285,12 +1285,24 @@ class TestAppRouteEnforcement:
 
     def test_registry_is_not_silently_empty(self):
         """A parametrised gate over an EMPTY registry would pass while enforcing
-        nothing, so pin the population. 33 prefixes -> 31 distinct values:
+        nothing, so pin the population. 34 prefixes -> 32 distinct values:
         /rtx/ and /vllm/ are aliases of the same app, and /tts/, /asr/ share
         the ("w2v", "speech") transition set."""
-        assert len(APP_ROUTE_REGISTRY) == 33
-        assert len(set(APP_ROUTE_REGISTRY.values())) == 31
+        assert len(APP_ROUTE_REGISTRY) == 34
+        assert len(set(APP_ROUTE_REGISTRY.values())) == 32
         assert "/vllm/" in APP_ROUTE_REGISTRY and "/rtx/" in APP_ROUTE_REGISTRY
+
+    def test_image_gen_prefix_demands_a_conveyor_licence(self):
+        """`/image-gen/` is the native MOSS-Image host and belongs to conveyor,
+        the caller that owns `media.generate_image`. The legacy `/image/` stays
+        `w2v`: the two prefixes must not answer for each other."""
+        assert _registered_app_key("/image-gen/v1/images/generations") == "conveyor"
+        assert _check_app_route("conveyor", "/image-gen/v1/images/generations", "POST") is True
+        assert _check_app_route("w2v", "/image-gen/v1/images/generations", "POST") is False
+        # The legacy prefix is untouched: a conveyor licence does not reach it,
+        # and it does not reach the native route.
+        assert _registered_app_key("/image/api/image/generate") == "w2v"
+        assert _check_app_route("conveyor", "/image/api/image/generate", "POST") is False
 
     def test_laya_prefix_demands_a_laya_licence(self):
         """`/laya/` (pgx laya bridge) is bound to app `laya`: a licence for any

@@ -1853,6 +1853,14 @@ APP_ROUTE_REGISTRY: dict[str, str | tuple[str, ...]] = {
     # `/image/` stays w2v's GPU modality (owner decision 2026-10-20) — a
     # licence for app `w2v` only.
     "/image/": "w2v",
+    # `/image-gen/` is the NATIVE image host (POST /v1/images/generations), not
+    # the modality-gateway dialect above: it forwards straight to
+    # image-gen.internal:9204, the MOSS-Image server on mini1, and conveyor is
+    # the caller that owns it (`media.generate_image`). Owner decision
+    # 2026-11-22. A separate prefix on purpose — `/image/` is the legacy path
+    # that has reached nothing since mlx_inference#25, and repointing it would
+    # silently change what every existing `w2v` caller gets.
+    "/image-gen/": "conveyor",
     "/kag-graph/": "kag-graph",
     "/kag-orchestrator/": "kag-orchestrator",
     "/graph-adapter/": "graph-adapter",
