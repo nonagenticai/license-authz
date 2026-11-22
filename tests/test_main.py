@@ -457,10 +457,10 @@ class TestSecurityHardening:
     @respx.mock
     async def test_license_token_still_works(self, client: AsyncClient):
         """Valid license tokens still work as expected."""
-        # app_key="workers" because the path is a REGISTERED prefix: an unkeyed
+        # app_key="secrets" because the path is a REGISTERED prefix: an unkeyed
         # token is denied there now (see TestAppRouteEnforcement). Collateral of
         # the fail-closed change, not a change to what this test is about.
-        route = respx.post(INTROSPECT_URL).respond(200, json=_active_response(app_key="workers"))
+        route = respx.post(INTROSPECT_URL).respond(200, json=_active_response(app_key="secrets"))
 
         # A licence token's wire shape: 43 base64url characters, no dots.
         # Built as an expression rather than written as a literal ON PURPOSE. A
@@ -472,7 +472,7 @@ class TestSecurityHardening:
         license_token = "fixture" + "-" + "0" * 35
 
         response = await client.get(
-            "/workers/tasks",
+            "/secrets/tasks",
             headers={"Authorization": f"Bearer {license_token}"},
         )
 
@@ -960,7 +960,7 @@ class TestMeteringEmit:
                 "active": True,
                 "subject_id": "00000000-0000-7000-8000-aaaaaaaaaaaa",
                 "license_id": "lic_abc",
-                "app": {"id": "app_workers", "key": "workers"},
+                "app": {"id": "app_secrets", "key": "secrets"},
                 "plan": {"id": "premium"},
             },
         )
@@ -971,7 +971,7 @@ class TestMeteringEmit:
                 transport = ASGITransport(app=app)
                 async with AsyncClient(transport=transport, base_url="http://test") as ac:
                     response = await ac.get(
-                        "/workers/api/tasks",
+                        "/secrets/api/tasks",
                         headers={"Authorization": "Bearer valid_token"},
                     )
 
@@ -1094,28 +1094,28 @@ class TestAppRouteEnforcement:
     """Tests for route-to-app enforcement: tokens for app A must be rejected on app B routes."""
 
     @respx.mock
-    async def test_token_for_workers_allowed_on_workers_route(self, client: AsyncClient):
+    async def test_token_for_secrets_allowed_on_secrets_route(self, client: AsyncClient):
         """Token with app_key=workers on /workers/api/tasks should be allowed (200)."""
         respx.post(INTROSPECT_URL).respond(
             200,
-            json=_active_response(app_key="workers"),
+            json=_active_response(app_key="secrets"),
         )
         response = await client.get(
-            "/workers/api/tasks",
+            "/secrets/api/tasks",
             headers={"Authorization": "Bearer tok"},
         )
         assert response.status_code == 200
         assert response.json() == {"status": "ok"}
 
     @respx.mock
-    async def test_token_for_workers_denied_on_kanban_route(self, client: AsyncClient):
+    async def test_token_for_secrets_denied_on_artifacts_route(self, client: AsyncClient):
         """Token with app_key=workers on /kanban/api/boards should be denied (403)."""
         respx.post(INTROSPECT_URL).respond(
             200,
-            json=_active_response(app_key="workers"),
+            json=_active_response(app_key="secrets"),
         )
         response = await client.get(
-            "/kanban/api/boards",
+            "/artifacts/api/boards",
             headers={"Authorization": "Bearer tok"},
         )
         assert response.status_code == 403
@@ -1123,43 +1123,6 @@ class TestAppRouteEnforcement:
         assert body["error"] == "forbidden"
         assert body["reason"] == "app_route_mismatch"
         assert response.headers.get("x-error-reason") == "app_route_mismatch"
-
-    @respx.mock
-    async def test_token_for_improvement_loop_allowed_on_improvement_loop_route(
-        self, client: AsyncClient
-    ):
-        """Token with app_key=improvement-loop on /improvement-loop/ is allowed (200).
-
-        The /metering/ route was retired when metering-service split into
-        billing-service + improvement-loop-service; the app_key is now
-        improvement-loop (uniform with route-registry.yaml).
-        """
-        respx.post(INTROSPECT_URL).respond(
-            200,
-            json=_active_response(app_key="improvement-loop"),
-        )
-        response = await client.get(
-            "/improvement-loop/api/internal/exec-quality",
-            headers={"Authorization": "Bearer tok"},
-        )
-        assert response.status_code == 200
-        assert response.json() == {"status": "ok"}
-
-    @respx.mock
-    async def test_wrong_token_denied_on_improvement_loop_route(self, client: AsyncClient):
-        """Token scoped to a different app on /improvement-loop/ is rejected (403)."""
-        respx.post(INTROSPECT_URL).respond(
-            200,
-            json=_active_response(app_key="workers"),
-        )
-        response = await client.get(
-            "/improvement-loop/api/internal/exec-quality",
-            headers={"Authorization": "Bearer tok"},
-        )
-        assert response.status_code == 403
-        body = response.json()
-        assert body["error"] == "forbidden"
-        assert body["reason"] == "app_route_mismatch"
 
     @respx.mock
     async def test_vllm_token_allowed_on_vllm_route(self, client: AsyncClient):
@@ -1180,40 +1143,6 @@ class TestAppRouteEnforcement:
         assert response.json() == {"status": "ok"}
 
     @respx.mock
-    async def test_vllm_token_still_allowed_on_rtx_route(self, client: AsyncClient):
-        """Backwards-compat: app_key=vllm on /rtx/ still allowed (200)."""
-        respx.post(INTROSPECT_URL).respond(
-            200,
-            json=_active_response(app_key="vllm"),
-        )
-        response = await client.post(
-            "/rtx/v1/chat/completions",
-            headers={"Authorization": "Bearer tok"},
-        )
-        assert response.status_code == 200
-        assert response.json() == {"status": "ok"}
-
-    @respx.mock
-    async def test_non_vllm_token_denied_on_rtx_route(self, client: AsyncClient):
-        """Non-vllm token on /rtx/ is rejected (403).
-
-        After the rtx-server→vllm rename, /rtx/ and /vllm/ both map to
-        app_key=vllm, so a token scoped to a different app (e.g. workers)
-        must still be rejected on either alias.
-        """
-        respx.post(INTROSPECT_URL).respond(
-            200,
-            json=_active_response(app_key="workers"),
-        )
-        response = await client.post(
-            "/rtx/v1/chat/completions",
-            headers={"Authorization": "Bearer tok"},
-        )
-        assert response.status_code == 403
-        body = response.json()
-        assert body["reason"] == "app_route_mismatch"
-
-    @respx.mock
     async def test_token_without_app_key_denied_on_registered_route(self, client: AsyncClient):
         """An UNKEYED token must not authorize a registered prefix.
 
@@ -1228,7 +1157,7 @@ class TestAppRouteEnforcement:
             json=_active_response(app_key=None),
         )
         response = await client.get(
-            "/workers/api/tasks",
+            "/secrets/api/tasks",
             headers={"Authorization": "Bearer tok"},
         )
         assert response.status_code == 403
@@ -1270,11 +1199,11 @@ class TestAppRouteEnforcement:
     @pytest.mark.parametrize(
         "app_key,path,expected",
         [
-            (None, "/workers/x", False),
-            ("", "/workers/x", False),
+            (None, "/secrets/x", False),
+            ("", "/secrets/x", False),
             ("   ", "/vllm/x", False),
-            ("workers", "/workers/x", True),
-            ("workers", "/kanban/x", False),
+            ("secrets", "/secrets/x", True),
+            ("secrets", "/artifacts/x", False),
             (None, "/api/x", True),
             ("", "/api/x", True),
         ],
@@ -1285,24 +1214,30 @@ class TestAppRouteEnforcement:
 
     def test_registry_is_not_silently_empty(self):
         """A parametrised gate over an EMPTY registry would pass while enforcing
-        nothing, so pin the population. 34 prefixes -> 32 distinct values:
-        /rtx/ and /vllm/ are aliases of the same app, and /tts/, /asr/ share
-        the ("w2v", "speech") transition set."""
-        assert len(APP_ROUTE_REGISTRY) == 34
-        assert len(set(APP_ROUTE_REGISTRY.values())) == 32
-        assert "/vllm/" in APP_ROUTE_REGISTRY and "/rtx/" in APP_ROUTE_REGISTRY
+        nothing, so pin the population. 13 prefixes -> 12 distinct values:
+        /tts/ and /asr/ share the ("w2v", "speech") transition set.
+
+        2026-11-22: 17 entries were removed after checking every one against the
+        live `api-external-routes` VirtualService and the cluster's Deployments
+        — no route existed for any of them, so the binding protected nothing.
+        `/image/` retired in favour of `/image-gen/` (conveyor)."""
+        assert len(APP_ROUTE_REGISTRY) == 13
+        assert len(set(APP_ROUTE_REGISTRY.values())) == 12
+        assert "/vllm/" in APP_ROUTE_REGISTRY
 
     def test_image_gen_prefix_demands_a_conveyor_licence(self):
         """`/image-gen/` is the native MOSS-Image host and belongs to conveyor,
-        the caller that owns `media.generate_image`. The legacy `/image/` stays
-        `w2v`: the two prefixes must not answer for each other."""
+        the caller that owns `media.generate_image`. The retired `/image/`
+        prefix is UNREGISTERED, so it neither answers for the native route nor
+        keeps a w2v binding alive."""
         assert _registered_app_key("/image-gen/v1/images/generations") == "conveyor"
         assert _check_app_route("conveyor", "/image-gen/v1/images/generations", "POST") is True
         assert _check_app_route("w2v", "/image-gen/v1/images/generations", "POST") is False
-        # The legacy prefix is untouched: a conveyor licence does not reach it,
-        # and it does not reach the native route.
-        assert _registered_app_key("/image/api/image/generate") == "w2v"
-        assert _check_app_route("conveyor", "/image/api/image/generate", "POST") is False
+        assert _registered_app_key("/image/api/image/generate") is None
+        # An unregistered path is not THIS function's deny — the unregistered
+        # branch handles it — so record the real answer rather than implying a
+        # gate this function does not provide.
+        assert _check_app_route("w2v", "/image/api/image/generate", "POST") is True
 
     def test_laya_prefix_demands_a_laya_licence(self):
         """`/laya/` (pgx laya bridge) is bound to app `laya`: a licence for any
@@ -1337,16 +1272,6 @@ class TestAppRouteEnforcement:
         assert _check_app_route(None, path, method) is False
         assert _check_app_route("", path, method) is False
 
-    def test_image_prefix_still_demands_a_w2v_licence(self):
-        """`/image/` is out of the 2026-10-22 speech decision: still `w2v`, and a
-        `speech` licence does not open it."""
-        path = "/image/api/image/generate"
-        assert _registered_app_key(path) == "w2v"
-        assert _check_app_route("w2v", path, "POST") is True
-        for other in ("speech", "vllm", "laya", "inference-router"):
-            assert _check_app_route(other, path, "POST") is False, other
-        assert _check_app_route(None, path, "POST") is False
-
     @pytest.mark.parametrize("path", ["/tts", "/ttsx/a", "/asrx/a", "/images/a", "/api/tts/x"])
     def test_gpu_modality_binding_does_not_overreach(self, path):
         """Prefix-bound with the trailing slash: a lookalike path, and the bare
@@ -1378,10 +1303,11 @@ class TestAppRouteEnforcement:
 
     @respx.mock
     async def test_speech_licence_on_image_route_is_403(self, client: AsyncClient):
-        """End-to-end: `/image/` is outside the speech decision — w2v only."""
+        """End-to-end: `/image-gen/` is conveyor's — a `speech` licence is a
+        mismatch, exactly as it was against the retired `/image/` route."""
         respx.post(INTROSPECT_URL).respond(200, json=_active_response(app_key="speech"))
         response = await client.post(
-            "/image/api/image/generate", headers={"Authorization": "Bearer tok"}
+            "/image-gen/v1/images/generations", headers={"Authorization": "Bearer tok"}
         )
         assert response.status_code == 403
         assert response.json()["reason"] == "app_route_mismatch"
@@ -1415,30 +1341,30 @@ class TestAppRouteEnforcement:
     @pytest.mark.parametrize(
         "raw_path",
         [
-            "//workers/x",
-            "///workers/x",
-            "/./workers/x",
-            "/a/../workers/x",
-            "/%2Fworkers/x",
+            "//secrets/x",
+            "///secrets/x",
+            "/./secrets/x",
+            "/a/../secrets/x",
+            "/%2Fsecrets/x",
             "//vllm/v1/chat/completions",
             "/vllm//v1/chat/completions",
-            "//workers/x?a=b",
+            "//secrets/x?a=b",
         ],
         ids=lambda p: p,
     )
     def test_unnormalized_path_cannot_escape_the_registry(self, raw_path):
         """A non-normalised raw :path must not fall through to unregistered-allow.
 
-        The test that used to sit here sent `//workers/x` through httpx, which
+        The test that used to sit here sent `//secrets/x` through httpx, which
         resolves it as an RFC-3986 *network-path reference* against base_url and
         delivers `/x` — an ordinary unregistered path. It exercised no
         normalisation at all, so its self-described tripwire could never fire
         (verified: `httpx.Client(base_url='http://test')
-        .build_request('GET','//workers/x').url.raw_path` is `b'/x'`).
+        .build_request('GET','//secrets/x').url.raw_path` is `b'/x'`).
 
         `src/main.py` reads Envoy's RAW `:path`, and Envoy's HCM does not merge
         slashes (`merge_slashes` defaults false and gitops sets it nowhere), so
-        `//workers/x` reaches the predicate verbatim and used to miss every
+        `//secrets/x` reaches the predicate verbatim and used to miss every
         registered prefix.
         """
         assert _check_app_route(None, raw_path, "GET") is False, (
@@ -1487,7 +1413,7 @@ class TestAppRouteEnforcement:
         """Token with any app_key on an unregistered route should be allowed (200)."""
         respx.post(INTROSPECT_URL).respond(
             200,
-            json=_active_response(app_key="workers"),
+            json=_active_response(app_key="secrets"),
         )
         response = await client.get(
             "/unknown/path",
@@ -1504,7 +1430,7 @@ class TestAppRouteEnforcement:
 
         respx.post(INTROSPECT_URL).respond(
             200,
-            json=_active_response(app_key="workers"),
+            json=_active_response(app_key="secrets"),
         )
 
         async with lifespan(app):
@@ -1513,7 +1439,7 @@ class TestAppRouteEnforcement:
                 transport = ASGITransport(app=app)
                 async with AsyncClient(transport=transport, base_url="http://test") as ac:
                     response = await ac.get(
-                        "/kanban/api/boards",
+                        "/artifacts/api/boards",
                         headers={"Authorization": "Bearer tok"},
                     )
 
@@ -1556,7 +1482,7 @@ class TestAssertedKeyRoutePredicates:
     def test_asserted_key_allowed_only_on_registered_routes(self):
         from main import _asserted_key_route_allowed
 
-        assert _asserted_key_route_allowed("/workers/api/tasks") is True
+        assert _asserted_key_route_allowed("/secrets/api/tasks") is True
         assert _asserted_key_route_allowed("/vllm/v1/chat/completions") is True
         assert _asserted_key_route_allowed("/api/resource") is False
         assert _asserted_key_route_allowed("/unknown/path") is False
@@ -1569,8 +1495,8 @@ class TestAssertedKeyRoutePredicates:
         """
         from main import _asserted_key_route_allowed
 
-        assert _asserted_key_route_allowed("//workers/x") is True
-        assert _asserted_key_route_allowed("/a/../workers/x") is True
+        assert _asserted_key_route_allowed("//secrets/x") is True
+        assert _asserted_key_route_allowed("/a/../secrets/x") is True
         assert _asserted_key_route_allowed("//api/x") is False
 
     def test_the_predicate_takes_no_app_key(self):
@@ -1991,10 +1917,10 @@ class TestAppHostRouteBinding:
         """Zero blast radius on the 29 live prefixes: a registered path never
         reaches the host registry at all."""
         monkeypatch.setattr(main_module, "APP_HOST_ROUTE_MODE", "enforce")
-        respx.post(INTROSPECT_URL).respond(200, json=_active_response(app_key="workers"))
+        respx.post(INTROSPECT_URL).respond(200, json=_active_response(app_key="secrets"))
         before = _app_host_count("mismatch_denied", "marketing-api.example", "marketing")
         response = await client.get(
-            "/workers/api/tasks",
+            "/secrets/api/tasks",
             headers={"Authorization": "Bearer tok", "host": "marketing-api.example"},
         )
         assert response.status_code == 200

@@ -33,7 +33,7 @@ def _introspect(**overrides) -> dict:
         "tenant_id": TENANT_UUID,
         "subject_id": "sub_123",
         "license_id": "lic_abc",
-        "app": {"id": "app_workers", "key": "workers"},
+        "app": {"id": "app_workers", "key": "secrets"},
         "plan": {"id": "premium", "code": "PRM"},
     }
     body.update(overrides)
@@ -184,7 +184,7 @@ class TestJwtModeActorOnMeteringEvent:
                 "tenant_id": TENANT_UUID,
                 "subject_id": "subject-uuid-from-licenses",
                 "license_id": "lic_abc",
-                "app": {"id": "app_workers", "key": "workers"},
+                "app": {"id": "app_workers", "key": "secrets"},
                 "plan": {"id": "premium", "code": "PRM"},
             }
         )
@@ -201,8 +201,8 @@ class TestJwtModeActorOnMeteringEvent:
                     transport = ASGITransport(app=app)
                     async with AsyncClient(transport=transport, base_url="http://test") as ac:
                         resp = await ac.get(
-                            "/workers/api/tasks",
-                            headers={"Authorization": f"Bearer {token}", "x-app-key": "workers"},
+                            "/secrets/api/tasks",
+                            headers={"Authorization": f"Bearer {token}", "x-app-key": "secrets"},
                         )
             finally:
                 app.state.redis = None
