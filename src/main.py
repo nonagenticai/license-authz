@@ -1847,13 +1847,13 @@ APP_ROUTE_REGISTRY: dict[str, str | tuple[str, ...]] = {
     "/tts/": ("w2v", "speech"),
     "/asr/": ("w2v", "speech"),
     # `/image-gen/` is the NATIVE image host (POST /v1/images/generations), not
-    # the modality-gateway dialect above: it forwards straight to
-    # image-gen.internal:9204, the MOSS-Image server on mini1, and conveyor is
-    # the caller that owns it (`media.generate_image`). Owner decision
-    # 2026-11-22: the legacy `/image/` entry and its gitops routes were RETIRED
-    # in the same decision — that prefix reached nothing after mlx_inference#25
-    # (the host stopped mounting /api/image/generate), so keeping a binding for
-    # it only kept a dead public path alive.
+    # the modality-gateway dialect above: it forwards straight to the estate's
+    # own image-generation server, and conveyor is the caller that owns it
+    # (`media.generate_image`). Owner decision 2026-11-22: the legacy `/image/`
+    # entry and its routes were RETIRED in the same decision — that prefix
+    # reached nothing once the image server stopped mounting the legacy
+    # /api/image/generate path, so keeping a binding for it only kept a dead
+    # public path alive.
     "/image-gen/": "conveyor",
     # ── retired 2026-11-22: entries for paths api.nonagentic.ai never routed ───
     # `/kag/`, `/kag-graph/`, `/kag-orchestrator/`, `/graph-adapter/`, `/nlp/`,
