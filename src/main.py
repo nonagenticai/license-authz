@@ -1810,58 +1810,65 @@ async def _get_redis(application: FastAPI) -> aioredis.Redis | None:
 # it is the key `_registered_app_key` reports, and the one JWT mode derives for a
 # caller that asserted none. Every key in the tuple satisfies `_check_app_route`.
 APP_ROUTE_REGISTRY: dict[str, str | tuple[str, ...]] = {
-    "/workers/": "workers",
-    "/kanban/": "kanban",
-    "/kag/": "kag",
+    # ── routed AND backed by a running deployment ───────────────────────────────
     "/secrets/": "secrets",
-    "/tools/": "tools",
     "/artifacts/": "artifacts",
-    "/procedures/": "procedures",
-    "/requirements/": "requirements",
     "/mcp/": "mcp",
     "/coding/": "coding",
-    "/skills/": "skill-builder",
     "/licenses/": "licenses",
     "/inference-router/": "inference-router",
-    "/model-registry/": "model-registry",
-    "/data-collector/": "data-collector",
-    "/model-evaluator/": "model-evaluator",
-    "/training-data-generator/": "training-data-generator",
-    "/improvement-loop/": "improvement-loop",
-    "/rtx/": "vllm",
+    "/storage/": "storage",
+    "/npm/": "npm",
+    # ── routed to the pgx bare-metal hosts (ServiceEntry, not a Deployment) ─────
     "/vllm/": "vllm",
     # pgx laya (Jev-compatible System-1 classifier) behind its Jev bridge; the
     # api.nonagentic.ai `/laya/` route forwards to pgx:9210 (gitops-production
     # scripts/host-configs/pgx/laya/). A licence for app `laya` only.
     "/laya/": "laya",
-    # api.nonagentic.ai `/tts/`, `/asr/`, `/image/` -> modality-gateway (gitops
-    # #4775: the public base_urls for tenant BYO GPU registration). Before
-    # 2026-10-20 they were unregistered and ANY active licence of any app
-    # passed. `/<p>/health` stays open: the gateway Lua exempts 2-segment
-    # health paths before ext_authz is ever called.
+    # ── `/workers/`, `/kanban/`, `/requirements/` RETIRED 2026-11-22 ───────────
+    # Owner decision: all three are absorbed into conveyor / agent /
+    # care-bus-agents. They are not apps any more, their routes are gone from
+    # `api-external-routes`, and no Deployable answers their prefixes, so the
+    # bindings were entries for paths nobody serves. Restoring one means
+    # restoring its route first; a new binding comes with it, in that order.
+    # api.nonagentic.ai `/tts/`, `/asr/` -> modality-gateway (gitops #4775: the
+    # public base_urls for tenant BYO GPU registration). `/<p>/health` stays
+    # open: the gateway Lua exempts 2-segment health paths before ext_authz.
     # TTS/ASR: owner decision 2026-10-22 — shared PLATFORM services (like
     # vllm/laya), decoupled from Studio/w2v, bound to the platform app `speech`
     # (supersedes the 2026-10-20 `w2v`-only binding for these two).
-    # ⚠️ TRANSITION SET, owner decision 2026-10-22: `w2v` is still accepted so
-    # Studio callers on api.nonagentic.ai do not break. `w2v` is PRIMARY on
-    # purpose: a JWT caller without `x-app-key` derives the primary, and today
-    # that is `w2v` (Studio). Licence-token callers carry their own key, so a
-    # `speech` token passes regardless of order. When Studio migrates, the order
-    # flips to ("speech", "w2v"), or `w2v` is dropped and these become "speech".
+    # ⚠️ TRANSITION SET: `w2v` is still accepted so Studio callers on
+    # api.nonagentic.ai do not break. `w2v` is PRIMARY on purpose: a JWT caller
+    # without `x-app-key` derives the primary, and today that is `w2v` (Studio).
+    # Licence-token callers carry their own key, so a `speech` token passes
+    # regardless of order. When Studio migrates, the order flips to
+    # ("speech", "w2v"), or `w2v` is dropped and these become "speech".
+    # The backing Deployment is ABSENT today — same rule as the three above.
     "/tts/": ("w2v", "speech"),
     "/asr/": ("w2v", "speech"),
-    # `/image/` stays w2v's GPU modality (owner decision 2026-10-20) — a
-    # licence for app `w2v` only.
-    "/image/": "w2v",
-    "/kag-graph/": "kag-graph",
-    "/kag-orchestrator/": "kag-orchestrator",
-    "/graph-adapter/": "graph-adapter",
-    "/karma/": "karma",
-    "/hirag/": "hirag",
-    "/nlp/": "nlp-service",
-    "/storage/": "storage",
-    "/ingestion/": "ingestion",
-    "/npm/": "npm",
+    # `/image-gen/` is the NATIVE image host (POST /v1/images/generations), not
+    # the modality-gateway dialect above: it forwards straight to the estate's
+    # own image-generation server, and conveyor is the caller that owns it
+    # (`media.generate_image`). Owner decision 2026-11-22: the legacy `/image/`
+    # entry and its routes were RETIRED in the same decision — that prefix
+    # reached nothing once the image server stopped mounting the legacy
+    # /api/image/generate path, so keeping a binding for it only kept a dead
+    # public path alive.
+    "/image-gen/": "conveyor",
+    # ── retired 2026-11-22: entries for paths api.nonagentic.ai never routed ───
+    # `/kag/`, `/kag-graph/`, `/kag-orchestrator/`, `/graph-adapter/`, `/nlp/`,
+    # `/hirag/`, `/karma/`, `/ingestion/`, `/skills/`, `/tools/`, `/procedures/`,
+    # `/model-registry/`, `/data-collector/`, `/model-evaluator/`,
+    # `/training-data-generator/`, `/improvement-loop/`, `/rtx/`.
+    # Verified against the live `api-external-routes` VirtualService and the
+    # cluster's Deployments: none had a route, and the app_keys they named are
+    # either absent (kag*, nlp, hirag, karma, graph-adapter, skills, tools,
+    # model-registry, data-collector, model-evaluator,
+    # training-data-generator, improvement-loop) or, for `/rtx/`, a second
+    # spelling of a route `/vllm/` already owns. A binding for a path nobody
+    # serves protects nothing and invites a later reader to assume the path is
+    # live. KAG's remaining surface is scheduled to become conveyor's; when the
+    # route lands, its prefix and binding are added together.
 }
 
 # Paths on which a caller INTROSPECTS ITS OWN LICENCE. See

@@ -27,7 +27,7 @@ def _active(**overrides) -> dict:
         "tenant_id": TENANT_UUID,
         "subject_id": "sub_123",
         "license_id": "lic_abc",
-        "app": {"id": "app_workers", "key": "workers"},
+        "app": {"id": "app_workers", "key": "secrets"},
         "plan": {"id": "premium", "code": "PRM"},
     }
     base.update(overrides)
@@ -188,7 +188,7 @@ class TestJwtModeIntegration:
                         "/api/x",
                         headers={
                             "Authorization": f"Bearer {token}",
-                            "x-app-key": "workers",
+                            "x-app-key": "secrets",
                         },
                     )
         assert resp.status_code == 401
@@ -327,7 +327,7 @@ class TestJwtModeIntegration:
                 transport = ASGITransport(app=app)
                 async with AsyncClient(transport=transport, base_url="http://test") as ac:
                     resp = await ac.get(
-                        "/workers/api/tasks",
+                        "/secrets/api/tasks",
                         headers={
                             "Authorization": f"Bearer {token}",
                             "x-app-key": "w2v",
@@ -447,14 +447,14 @@ class TestJwtModeIntegration:
                         "/api/x",
                         headers={
                             "Authorization": f"Bearer {token}",
-                            "x-app-key": "workers",
+                            "x-app-key": "secrets",
                         },
                     )
         assert resp.status_code == 402
         body = resp.json()
         assert body["error"] == "license_required"
         assert body["tenant_id"] == "tenant-x"
-        assert body["app_key"] == "workers"
+        assert body["app_key"] == "secrets"
 
     async def test_jwt_mode_licenses_unavailable_returns_503(self, monkeypatch):
         from jwt_mode import KEYCLOAK_ISSUER, VerifiedClaims
@@ -477,7 +477,7 @@ class TestJwtModeIntegration:
                         "/api/x",
                         headers={
                             "Authorization": f"Bearer {token}",
-                            "x-app-key": "workers",
+                            "x-app-key": "secrets",
                         },
                     )
         assert resp.status_code == 503
@@ -498,7 +498,7 @@ class TestJwtModeIntegration:
                 "active": True,
                 "tenant_id": TENANT_UUID,
                 "license_id": "lic-1",
-                "app": {"id": "app-w", "key": "workers"},
+                "app": {"id": "app-w", "key": "secrets"},
                 "plan": {"id": "p1", "code": "PRM"},
             }
         )
@@ -510,17 +510,17 @@ class TestJwtModeIntegration:
                 transport = ASGITransport(app=app)
                 async with AsyncClient(transport=transport, base_url="http://test") as ac:
                     resp = await ac.get(
-                        "/workers/api/tasks",
+                        "/secrets/api/tasks",
                         headers={
                             "Authorization": f"Bearer {token}",
-                            "x-app-key": "workers",
+                            "x-app-key": "secrets",
                         },
                     )
         assert resp.status_code == 200
         assert resp.headers.get("x-tenant-id") == TENANT_UUID
         assert resp.headers.get("x-tenant-name") == ""
         assert resp.headers.get("x-license-id") == "lic-1"
-        assert resp.headers.get("x-app-key") == "workers"
+        assert resp.headers.get("x-app-key") == "secrets"
 
     async def test_jwt_mode_propagates_subject_id_from_active_license(self, monkeypatch):
         """JWT-mode resolves subject_id via /licenses/active response, not the JWT.
@@ -546,7 +546,7 @@ class TestJwtModeIntegration:
                 "tenant_id": TENANT_UUID,
                 "subject_id": "subject-uuid-from-licenses",
                 "license_id": "lic-1",
-                "app": {"id": "app-w", "key": "workers"},
+                "app": {"id": "app-w", "key": "secrets"},
                 "plan": {"id": "p1", "code": "PRM"},
             }
         )
@@ -563,10 +563,10 @@ class TestJwtModeIntegration:
                     transport = ASGITransport(app=app)
                     async with AsyncClient(transport=transport, base_url="http://test") as ac:
                         resp = await ac.get(
-                            "/workers/api/tasks",
+                            "/secrets/api/tasks",
                             headers={
                                 "Authorization": f"Bearer {token}",
-                                "x-app-key": "workers",
+                                "x-app-key": "secrets",
                             },
                         )
                 assert resp.status_code == 200
@@ -605,10 +605,10 @@ class TestJwtModeIntegration:
                 transport = ASGITransport(app=app)
                 async with AsyncClient(transport=transport, base_url="http://test") as ac:
                     resp = await ac.get(
-                        "/workers/api/tasks",
+                        "/secrets/api/tasks",
                         headers={
                             "Authorization": f"Bearer {token}",
-                            "x-app-key": "workers",
+                            "x-app-key": "secrets",
                         },
                     )
         assert resp.status_code == 200
@@ -637,10 +637,10 @@ class TestJwtModeIntegration:
                 transport = ASGITransport(app=app)
                 async with AsyncClient(transport=transport, base_url="http://test") as ac:
                     resp = await ac.get(
-                        "/workers/api/tasks",
+                        "/secrets/api/tasks",
                         headers={
                             "Authorization": f"Bearer {token}",
-                            "x-app-key": "workers",
+                            "x-app-key": "secrets",
                         },
                     )
         assert resp.status_code == 200
@@ -679,7 +679,7 @@ class TestJwtModeByTenantCounter:
 
         coarse_before = _jwt_mode_counter("license_required") or 0.0
         tenant_before = (
-            _jwt_mode_by_tenant_counter("license_required", "tenant-counter-1", "workers") or 0.0
+            _jwt_mode_by_tenant_counter("license_required", "tenant-counter-1", "secrets") or 0.0
         )
 
         async with lifespan(app):
@@ -692,14 +692,14 @@ class TestJwtModeByTenantCounter:
                         "/api/x",
                         headers={
                             "Authorization": f"Bearer {token}",
-                            "x-app-key": "workers",
+                            "x-app-key": "secrets",
                         },
                     )
         assert resp.status_code == 402
 
         coarse_after = _jwt_mode_counter("license_required") or 0.0
         tenant_after = (
-            _jwt_mode_by_tenant_counter("license_required", "tenant-counter-1", "workers") or 0.0
+            _jwt_mode_by_tenant_counter("license_required", "tenant-counter-1", "secrets") or 0.0
         )
         assert coarse_after == coarse_before + 1.0
         assert tenant_after == tenant_before + 1.0
@@ -718,13 +718,13 @@ class TestJwtModeByTenantCounter:
                 "active": True,
                 "tenant_id": TENANT_UUID_2,
                 "license_id": "lic-2",
-                "app": {"id": "app-w", "key": "workers"},
+                "app": {"id": "app-w", "key": "secrets"},
                 "plan": {"id": "p1", "code": "PRM"},
             }
         )
 
         coarse_before = _jwt_mode_counter("allowed") or 0.0
-        tenant_before = _jwt_mode_by_tenant_counter("allowed", TENANT_UUID_2, "workers") or 0.0
+        tenant_before = _jwt_mode_by_tenant_counter("allowed", TENANT_UUID_2, "secrets") or 0.0
 
         async with lifespan(app):
             app.state.jwks = MagicMock()
@@ -733,16 +733,16 @@ class TestJwtModeByTenantCounter:
                 transport = ASGITransport(app=app)
                 async with AsyncClient(transport=transport, base_url="http://test") as ac:
                     resp = await ac.get(
-                        "/workers/api/tasks",
+                        "/secrets/api/tasks",
                         headers={
                             "Authorization": f"Bearer {token}",
-                            "x-app-key": "workers",
+                            "x-app-key": "secrets",
                         },
                     )
         assert resp.status_code == 200
 
         coarse_after = _jwt_mode_counter("allowed") or 0.0
-        tenant_after = _jwt_mode_by_tenant_counter("allowed", TENANT_UUID_2, "workers") or 0.0
+        tenant_after = _jwt_mode_by_tenant_counter("allowed", TENANT_UUID_2, "secrets") or 0.0
         assert coarse_after == coarse_before + 1.0
         assert tenant_after == tenant_before + 1.0
 
@@ -828,13 +828,13 @@ class TestAssertedAppKeyUnregisteredRoute:
                 "active": True,
                 "tenant_id": TENANT_UUID,
                 "license_id": "lic-1",
-                "app": {"id": "app-w", "key": "workers"},
+                "app": {"id": "app-w", "key": "secrets"},
                 "plan": {"id": "p1", "code": "PRM"},
             }
         )
         return token, claims, resolver
 
-    async def _jwt_request(self, monkeypatch, path: str, app_key: str = "workers"):
+    async def _jwt_request(self, monkeypatch, path: str, app_key: str = "secrets"):
         token, claims, resolver = self._jwt_env(monkeypatch)
         async with lifespan(app):
             app.state.jwks = MagicMock()
@@ -870,9 +870,9 @@ class TestAssertedAppKeyUnregisteredRoute:
         If this reddens, the change is not "an asserted key needs a binding", it
         is "the JWT path is dead".
         """
-        resp = await self._jwt_request(monkeypatch, "/workers/api/tasks")
+        resp = await self._jwt_request(monkeypatch, "/secrets/api/tasks")
         assert resp.status_code == 200
-        assert resp.headers.get("x-app-key") == "workers"
+        assert resp.headers.get("x-app-key") == "secrets"
 
     @respx.mock
     async def test_attested_key_on_an_unregistered_route_is_still_allowed(self):
@@ -932,7 +932,7 @@ class TestAssertedAppKeyUnregisteredRoute:
         before_denied = _route_sample("denied_asserted_key_unregistered")
         before_revert = _route_sample("allowed_asserted_key_unregistered")
 
-        resp = await self._jwt_request(monkeypatch, "/workers/api/tasks")
+        resp = await self._jwt_request(monkeypatch, "/secrets/api/tasks")
 
         assert resp.status_code == 200
         assert _route_sample("allowed") == before_allowed + 1
@@ -1091,19 +1091,19 @@ class TestAssertedAppKeyGatewayHostBinding:
 
     async def test_registered_path_on_gateway_host_still_emits(self, monkeypatch):
         """NEGATIVE CONTROL: the skip is the unregistered-path arm, not the host.
-        A registered `/kanban/` API path on the same host stays billable."""
-        before = _skipped_sample("kanban")
+        A registered `/artifacts/` API path on the same host stays billable."""
+        before = _skipped_sample("artifacts")
         resp, xadd = await self._req_metered(
             monkeypatch,
-            "/kanban/api/boards",
-            "kanban",
-            "kanban.nonagentic.ai",
-            resolved_key="kanban",
+            "/artifacts/api/boards",
+            "artifacts",
+            "artifacts.nonagentic.ai",
+            resolved_key="artifacts",
         )
         assert resp.status_code == 200
         xadd.assert_awaited_once()
         assert xadd.await_args[0][1]["status"] == "allowed"
-        assert _skipped_sample("kanban") == before
+        assert _skipped_sample("artifacts") == before
 
     @respx.mock
     async def test_forged_host_pair_on_licence_token_still_emits(self):
